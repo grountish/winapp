@@ -24,9 +24,18 @@ let durations = {};     // path -> seconds, learned as tracks load
 async function loadPlaylist() {
   statusEl.textContent = "loading...";
   try {
-    const res = await fetch("playlist.json", { cache: "no-cache" });
-    if (!res.ok) throw new Error(res.status);
-    const data = await res.json();
+    // dynamic endpoint first (lists the bucket live), committed manifest as fallback
+    const sources = [window.PLAYLIST_URL, "playlist.json"].filter(Boolean);
+    let data = null;
+    for (const url of sources) {
+      try {
+        const res = await fetch(url, { cache: "no-cache" });
+        if (!res.ok) throw new Error(res.status);
+        data = await res.json();
+        break;
+      } catch (_) {}
+    }
+    if (!data) throw new Error("no playlist source reachable");
     tracks = Array.isArray(data) ? data : data.tracks || [];
     base = Array.isArray(data) ? "" : data.base || "";
     if (base && !base.endsWith("/")) base += "/";

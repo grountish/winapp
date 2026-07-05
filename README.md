@@ -21,6 +21,8 @@ web/       the player (uploaded to the bucket root)
 scripts/   gen-playlist.py  — folder -> playlist.json
            sync-music.sh    — rclone sync music + player -> R2
            gen-icons.py     — regenerates PWA icons
+worker/    Cloudflare Worker — serves playlist.json built live from the
+           bucket listing (optional; makes uploads appear without a re-push)
 ```
 
 ## Setup (one time)
@@ -55,6 +57,27 @@ Whenever your local music folder changes:
 ./scripts/sync-music.sh ~/Music/winapp        # any folder, any bucket name
 git add web/playlist.json && git commit -m "update playlist" && git push   # Vercel mode
 ```
+
+Music uploaded straight to the bucket by another tool (Cloudflare dashboard,
+Transmit, …) isn't picked up automatically in manifest mode — rebuild the
+manifest from the bucket instead:
+
+```sh
+./scripts/playlist-from-bucket.sh
+git add web/playlist.json && git commit -m "update playlist" && git push   # Vercel mode
+```
+
+## Dynamic playlist (no re-push after uploads)
+
+Deploy the Worker in `worker/` once and the player reads the bucket listing
+live — anything uploaded by any tool appears on the next reload:
+
+1. `cd worker && npx wrangler login && npx wrangler deploy`
+   (check `bucket_name` and `PUBLIC_BASE` in `worker/wrangler.toml` first)
+2. Put the deployed URL into `web/index.html`:
+   `window.PLAYLIST_URL = "https://winapp-playlist.<subdomain>.workers.dev/playlist.json"`
+3. Commit + push once. After that, uploads appear without any re-push;
+   the committed `playlist.json` remains as a fallback if the Worker is down.
 
 iPhone: open the player URL in Safari → Share → **Add to Home Screen**.
 

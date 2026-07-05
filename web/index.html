@@ -85,6 +85,11 @@
 </section>
 
 <audio id="audio" preload="metadata"></audio>
+<script>
+// Dynamic playlist endpoint (Cloudflare Worker in worker/ — lists the R2
+// bucket live). Leave empty to use the committed playlist.json only.
+window.PLAYLIST_URL = "https://winapp-playlist.winapp.workers.dev/playlist.json";
+</script>
 <script src="app.js"></script>
 </body>
 </html>
