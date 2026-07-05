@@ -34,16 +34,29 @@ scripts/   gen-playlist.py  — folder -> playlist.json
    `.env` is gitignored; the sync script feeds it to rclone via environment
    variables — no rclone.conf needed.
 
+## Hosting the player
+
+Two modes, controlled by `R2_PUBLIC_BASE` in `.env`:
+
+- **Vercel (recommended)**: set `R2_PUBLIC_BASE` to the bucket's public
+  `https://pub-….r2.dev` URL. Import the GitHub repo in
+  [Vercel](https://vercel.com/new), set **Root Directory** to `web`,
+  framework "Other", no build step. Every push redeploys the player;
+  audio streams from R2 (no CORS needed — `playlist.json` is committed
+  and served same-origin, `<audio>` loads cross-origin freely).
+- **Bucket-only**: leave `R2_PUBLIC_BASE` unset; the sync script uploads the
+  player into the bucket and everything is served from the r2.dev URL.
+
 ## Use
 
 Whenever your local music folder changes:
 
 ```sh
 ./scripts/sync-music.sh ~/Music/winapp        # any folder, any bucket name
+git add web/playlist.json && git commit -m "update playlist" && git push   # Vercel mode
 ```
 
-iPhone: open `https://pub-….r2.dev/index.html` in Safari → Share →
-**Add to Home Screen**.
+iPhone: open the player URL in Safari → Share → **Add to Home Screen**.
 
 Track metadata comes from the file layout: folder = album, filename = title,
 `Artist - Title.mp3` fills artist.
