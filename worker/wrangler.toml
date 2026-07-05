@@ -1,0 +1,12 @@
+name = "winapp-playlist"
+main = "src/index.js"
+compatibility_date = "2026-07-01"
+
+# R2 bucket the playlist is built from (bucket_name must match your bucket)
+[[r2_buckets]]
+binding = "MUSIC"
+bucket_name = "winapp"
+
+[vars]
+# Public r2.dev URL of the bucket — becomes "base" in the playlist
+PUBLIC_BASE = "https://pub-954c83e8c67545179b025052ff99fffb.r2.dev/"
