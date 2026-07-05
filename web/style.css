@@ -240,6 +240,21 @@ body {
 
 .tbtn svg { width: 13px; height: 9px; fill: var(--text); }
 
+/* mode toggles (shuffle / repeat / mix) — icon lights green when active */
+.tbtn.mode { color: var(--text); }
+.tbtn.mode svg { fill: none; }
+.tbtn.mode.on {
+  color: var(--lcd-green);
+  background: var(--chrome-deep);
+  box-shadow: inset 1px 1px 0 var(--lo), inset -1px -1px 0 var(--hi);
+}
+.tbtn.mode.on svg { filter: drop-shadow(0 0 2px var(--lcd-green)); }
+
+/* nine 36px buttons don't fit very narrow phones — shrink a notch */
+@media (max-width: 379px) {
+  .tbtn { width: 30px; }
+}
+
 .tspacer { flex: 1; }
 
 .lit-btn {
@@ -301,6 +316,25 @@ body {
 .row.current { color: #fff; background: #2a2a58; }
 .row.current .dur { color: #fff; }
 
+/* album folders */
+.group .row:not(.hdr) { padding-left: 24px; }
+.group.closed .row:not(.hdr) { display: none; }
+
+.row.hdr {
+  cursor: pointer;
+  font-weight: bold;
+  background: #10102a;
+  border-bottom: 1px solid #1a1a3a;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.row.hdr .twist { flex: 0 0 12px; color: #3aa03a; font-size: 9px; }
+.row.hdr .twist::before { content: "\25BE"; } /* ▾ */
+.group.closed .row.hdr .twist::before { content: "\25B8"; } /* ▸ */
+.row.hdr .cnt { color: #3aa03a; font-size: 11px; }
+.row.hdr.current-in { color: #fff; }
+.row.hdr.current-in .twist { color: #fff; }
+
 .pl-footer {
   display: flex;
   align-items: center;
@@ -309,6 +343,33 @@ body {
 }
 
 .pl-footer .lcd.tag { flex: 0 0 auto; }
+
+/* bucket storage meter */
+#storage {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+#storage[hidden] { display: none; }
+#storage .meter {
+  width: 42px;
+  height: 7px;
+  background: #000;
+  border: 1px solid var(--lo);
+  box-shadow: inset 0 1px 0 rgba(0, 0, 0, 0.6);
+  overflow: hidden;
+  display: block;
+}
+#storage .fill {
+  display: block;
+  height: 100%;
+  min-width: 1px;
+  background: linear-gradient(90deg, #005800, var(--lcd-green));
+}
+#storage .used { font-size: 9px; white-space: nowrap; }
+#storage.warn .fill { background: linear-gradient(90deg, #583000, #ff9000); }
+#storage.warn .used { color: #ff9000; }
 
 #filter {
   flex: 1;

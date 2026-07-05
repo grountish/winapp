@@ -1,6 +1,10 @@
 "use strict";
 
-const audio = document.getElementById("audio");
+const deckA = document.getElementById("audio");
+const deckB = deckA.cloneNode();      // second deck so automix can overlap tracks
+deckB.removeAttribute("id");          // clone must not duplicate #audio
+document.body.appendChild(deckB);
+let audio = deckA;                    // active deck
 const $ = (id) => document.getElementById(id);
 const marquee = $("marquee");
 const timeNow = $("time-now");
@@ -18,8 +22,33 @@ let shuffle = false;
 let repeat = false;
 let seeking = false;
 let durations = {};     // path -> seconds, learned as tracks load
+let userVol = 1;        // slider volume; deck volumes are scaled by fades
+let mix = localStorage.getItem("mix") === "1";
+let fading = null;      // {id, from} while a crossfade is running
+const MIX_SECS = 6;
+let collapsed = new Set();   // album names folded shut in the playlist tree
+try { collapsed = new Set(JSON.parse(localStorage.getItem("collapsed")) || []); } catch (_) {}
+// iOS ignores programmatic volume changes — there automix falls back to a hard cut
+const canFade = (() => { const a = document.createElement("audio"); a.volume = 0.5; return a.volume === 0.5; })();
 
 // ---------- playlist ----------
+
+const QUOTA_BYTES = 10 * 1024 ** 3;   // R2 free tier: 10 GB storage
+
+// bucket usage meter in the playlist footer; hidden when the worker
+// doesn't report usedBytes (old worker or committed playlist fallback)
+function setStorageUI(usedBytes) {
+  const el = $("storage");
+  if (typeof usedBytes !== "number") { el.hidden = true; return; }
+  const pct = Math.min(100, (usedBytes / QUOTA_BYTES) * 100);
+  const gb = usedBytes / 1024 ** 3;
+  el.hidden = false;
+  el.querySelector(".used").textContent =
+    (gb >= 1 ? gb.toFixed(1) : (usedBytes / 1024 ** 2).toFixed(0) + "M") + "/10G";
+  el.querySelector(".fill").style.width = pct.toFixed(1) + "%";
+  el.classList.toggle("warn", pct >= 90);
+  el.title = "bucket storage: " + gb.toFixed(2) + " GB of 10 GB (" + pct.toFixed(1) + "%)";
+}
 
 async function loadPlaylist() {
   statusEl.textContent = "loading...";
@@ -39,6 +68,7 @@ async function loadPlaylist() {
     tracks = Array.isArray(data) ? data : data.tracks || [];
     base = Array.isArray(data) ? "" : data.base || "";
     if (base && !base.endsWith("/")) base += "/";
+    setStorageUI(Array.isArray(data) ? null : data.usedBytes);
     try { durations = JSON.parse(localStorage.getItem("durations")) || {}; } catch (_) { durations = {}; }
     rebuildOrder();
     render();
@@ -70,19 +100,55 @@ function render() {
   const q = $("filter").value.trim().toLowerCase();
   playlistEl.innerHTML = "";
   const frag = document.createDocumentFragment();
+  let group = null;      // container for the current album run
+  let groupKey = null;   // album of that run ("" = loose tracks)
+
   tracks.forEach((t, i) => {
     if (q && !(label(t) + " " + (t.album || "")).toLowerCase().includes(q)) return;
+
+    const alb = t.album || "";
+    if (alb !== groupKey || (!alb && group)) {
+      groupKey = alb;
+      group = null;
+      if (alb) {
+        group = document.createElement("div");
+        // a filter search always shows its matches expanded
+        group.className = "group" + (!q && collapsed.has(alb) ? " closed" : "");
+        const hdr = document.createElement("div");
+        hdr.className = "row hdr";
+        hdr.dataset.album = alb;
+        hdr.innerHTML = '<span class="twist"></span><span class="name"></span><span class="cnt"></span>';
+        hdr.querySelector(".name").textContent = alb;
+        group.appendChild(hdr);
+        frag.appendChild(group);
+      }
+    }
+
     const row = document.createElement("div");
     row.className = "row" + (i === currentIndex() ? " current" : "");
     row.dataset.index = i;
     row.innerHTML = '<span class="name"></span><span class="dur"></span>';
     row.querySelector(".name").textContent = (i + 1) + ". " + label(t);
     row.querySelector(".dur").textContent = durations[t.path] ? fmt(durations[t.path]) : "";
-    frag.appendChild(row);
+    (group || frag).appendChild(row);
   });
+
+  for (const g of frag.querySelectorAll(".group")) {
+    g.querySelector(".cnt").textContent = g.querySelectorAll(".row:not(.hdr)").length + " trk";
+  }
   playlistEl.appendChild(frag);
+  markCurrent();
   if (!playlistEl.children.length && tracks.length) {
     playlistEl.innerHTML = '<div class="empty">no match</div>';
+  }
+}
+
+function setCollapsed(alb, closed) {
+  if (closed) collapsed.add(alb); else collapsed.delete(alb);
+  try { localStorage.setItem("collapsed", JSON.stringify([...collapsed])); } catch (_) {}
+  // same album can appear as several runs — fold every one of them
+  for (const hdr of playlistEl.querySelectorAll(".row.hdr")) {
+    if (hdr.dataset.album === alb) hdr.parentElement.classList.toggle("closed", closed);
   }
 }
 
@@ -98,6 +164,10 @@ function trackURL(t) {
 
 function loadTrack(t) {
   audio.src = trackURL(t);
+  setNowPlayingUI(t);
+}
+
+function setNowPlayingUI(t) {
   marquee.textContent = label(t) + (t.album ? "  [" + t.album + "]  " : "  ");
   marqueeCheck();
   $("fmt-kbps").textContent = (t.path.split(".").pop() || "---").toUpperCase().slice(0, 4);
@@ -108,6 +178,7 @@ function loadTrack(t) {
 }
 
 function playAt(orderPos) {
+  endFade();
   if (orderPos >= order.length && repeat && order.length) orderPos = 0;
   if (orderPos < 0 || orderPos >= order.length) return stop();
   pos = orderPos;
@@ -129,9 +200,13 @@ function play() {
   audio.play().catch(() => {});
 }
 
-function pause() { audio.pause(); }
+function pause() {
+  endFade();
+  audio.pause();
+}
 
 function stop() {
+  endFade();
   audio.pause();
   audio.removeAttribute("src");
   audio.load();
@@ -152,10 +227,66 @@ function prev() {
   else playAt(pos - 1);
 }
 
+// ---------- automix ----------
+
+function nextOrderPos() {
+  const p = pos + 1;
+  if (p < order.length) return p;
+  return repeat && order.length ? 0 : -1;
+}
+
+function maybeMix() {
+  if (!mix || !canFade || fading || seeking || audio.paused) return;
+  const dur = audio.duration;
+  if (!isFinite(dur) || !dur) return;
+  const fade = Math.min(MIX_SECS, dur / 3);
+  const left = dur - audio.currentTime;
+  if (left > fade || left <= 0) return;
+  const p = nextOrderPos();
+  if (p !== -1) beginFade(p, left);
+}
+
+function beginFade(orderPos, secs) {
+  const from = audio;
+  const to = from === deckA ? deckB : deckA;
+  pos = orderPos;
+  const t = tracks[order[pos]];
+  to.src = trackURL(t);
+  to.volume = 0;
+  audio = to;
+  setNowPlayingUI(t);
+  to.play().catch(() => {});
+  const t0 = performance.now();
+  const id = setInterval(() => {
+    const x = Math.min(1, (performance.now() - t0) / (secs * 1000));
+    from.volume = Math.cos((x * Math.PI) / 2) * userVol;      // equal-power
+    to.volume = Math.cos(((1 - x) * Math.PI) / 2) * userVol;
+    if (x === 1) endFade();
+  }, 50);
+  fading = { id, from };
+  saveLast();
+}
+
+// finishes or cancels a crossfade: outgoing deck is silenced and unloaded
+function endFade() {
+  if (!fading) return;
+  clearInterval(fading.id);
+  const from = fading.from;
+  fading = null;
+  from.pause();
+  from.removeAttribute("src");
+  from.load();
+  audio.volume = userVol;
+}
+
 function markCurrent() {
   const cur = currentIndex();
-  for (const row of playlistEl.querySelectorAll(".row")) {
+  for (const row of playlistEl.querySelectorAll(".row:not(.hdr)")) {
     row.classList.toggle("current", Number(row.dataset.index) === cur);
+  }
+  // a folded album still signals that the current track lives inside it
+  for (const hdr of playlistEl.querySelectorAll(".row.hdr")) {
+    hdr.classList.toggle("current-in", !!hdr.parentElement.querySelector(".row.current"));
   }
 }
 
@@ -192,39 +323,56 @@ function lcdTime(s) {
   return str.length < 5 ? " " + str : str;
 }
 
-audio.addEventListener("loadedmetadata", () => {
-  const i = currentIndex();
-  if (i < 0 || !isFinite(audio.duration)) return;
-  const path = tracks[i].path;
-  if (!durations[path]) {
-    durations[path] = audio.duration;
-    try { localStorage.setItem("durations", JSON.stringify(durations)); } catch (_) {}
-    const row = playlistEl.querySelector('.row[data-index="' + i + '"] .dur');
-    if (row) row.textContent = fmt(audio.duration);
-  }
-});
+function wireDeck(el) {
+  el.addEventListener("loadedmetadata", () => {
+    if (el !== audio) return;
+    const i = currentIndex();
+    if (i < 0 || !isFinite(el.duration)) return;
+    const path = tracks[i].path;
+    if (!durations[path]) {
+      durations[path] = el.duration;
+      try { localStorage.setItem("durations", JSON.stringify(durations)); } catch (_) {}
+      const row = playlistEl.querySelector('.row[data-index="' + i + '"] .dur');
+      if (row) row.textContent = fmt(el.duration);
+    }
+  });
 
-audio.addEventListener("timeupdate", () => {
-  timeNow.textContent = lcdTime(audio.currentTime);
-  if (!seeking && audio.duration) seek.value = (audio.currentTime / audio.duration) * 1000;
-  if ((audio.currentTime | 0) % 5 === 0) saveLast();
-});
+  el.addEventListener("timeupdate", () => {
+    if (el !== audio) return;
+    timeNow.textContent = lcdTime(el.currentTime);
+    if (!seeking && el.duration) seek.value = (el.currentTime / el.duration) * 1000;
+    if ((el.currentTime | 0) % 5 === 0) saveLast();
+    maybeMix();
+  });
 
-audio.addEventListener("play", () => {
-  stateLed.className = "state-led play";
-  setChannels(true);
-  setPlaybackState("playing");
-  vizRun();
-});
-audio.addEventListener("pause", () => {
-  stateLed.className = "state-led pause";
-  setChannels(false);
-  setPlaybackState("paused");
-});
-audio.addEventListener("ended", next);
-audio.addEventListener("error", () => {
-  if (pos !== -1) { statusEl.textContent = "unplayable, skipping"; next(); }
-});
+  el.addEventListener("play", () => {
+    if (el !== audio) return;
+    stateLed.className = "state-led play";
+    setChannels(true);
+    setPlaybackState("playing");
+    vizRun();
+  });
+
+  el.addEventListener("pause", () => {
+    if (el !== audio) return;
+    stateLed.className = "state-led pause";
+    setChannels(false);
+    setPlaybackState("paused");
+  });
+
+  el.addEventListener("ended", () => {
+    if (fading && fading.from === el) return endFade();  // outgoing deck ran out
+    if (el === audio) next();
+  });
+
+  el.addEventListener("error", () => {
+    if (fading && fading.from === el) return endFade();
+    if (el === audio && pos !== -1) { statusEl.textContent = "unplayable, skipping"; next(); }
+  });
+}
+
+wireDeck(deckA);
+wireDeck(deckB);
 
 function setChannels(on) {
   $("chan-stereo").classList.toggle("lit", on);
@@ -286,6 +434,11 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) vizR
 // ---------- ui wiring ----------
 
 playlistEl.addEventListener("click", (e) => {
+  const hdr = e.target.closest(".row.hdr");
+  if (hdr) {
+    setCollapsed(hdr.dataset.album, !hdr.parentElement.classList.contains("closed"));
+    return;
+  }
   const row = e.target.closest(".row");
   if (row) playTrack(Number(row.dataset.index));
 });
@@ -297,7 +450,10 @@ $("btn-next").addEventListener("click", next);
 $("btn-prev").addEventListener("click", prev);
 $("btn-eject").addEventListener("click", loadPlaylist);
 $("filter").addEventListener("input", render);
-$("vol").addEventListener("input", (e) => { audio.volume = e.target.value / 100; });
+$("vol").addEventListener("input", (e) => {
+  userVol = e.target.value / 100;
+  if (!fading) audio.volume = userVol;   // during a fade the ramp rescales both decks
+});
 
 $("btn-pl").addEventListener("click", () => {
   const pl = $("pl-win");
@@ -326,6 +482,13 @@ $("btn-rep").addEventListener("click", () => {
   repeat = !repeat;
   $("btn-rep").classList.toggle("on", repeat);
 });
+
+$("btn-mix").addEventListener("click", () => {
+  mix = !mix;
+  $("btn-mix").classList.toggle("on", mix);
+  try { localStorage.setItem("mix", mix ? "1" : "0"); } catch (_) {}
+});
+$("btn-mix").classList.toggle("on", mix);
 
 seek.addEventListener("input", () => { seeking = true; });
 seek.addEventListener("change", () => {

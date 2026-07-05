@@ -63,8 +63,9 @@
     <button class="tbtn" id="btn-next" title="next"><svg viewBox="0 0 12 8"><path d="M9 0h1v8H9zM1 0l7 4-7 4z"/></svg></button>
     <button class="tbtn" id="btn-eject" title="reload playlist"><svg viewBox="0 0 12 8"><path d="M1 6h10v2H1zM6 0l5 5H1z"/></svg></button>
     <span class="tspacer"></span>
-    <button id="btn-shuffle" class="lit-btn">SHUFFLE</button>
-    <button id="btn-rep" class="lit-btn">REP</button>
+    <button id="btn-shuffle" class="tbtn mode" title="shuffle"><svg viewBox="0 0 12 8"><path d="M0 1.5h2.8l5 5h1.7M0 6.5h2.8l5-5h1.7" fill="none" stroke="currentColor"/><path d="M9 0l3 1.5L9 3zM9 5l3 1.5L9 8z" fill="currentColor"/></svg></button>
+    <button id="btn-rep" class="tbtn mode" title="repeat"><svg viewBox="0 0 12 8"><path d="M1.5 5V3.5C1.5 2.4 2.4 1.5 3.5 1.5H10M10.5 3v1.5c0 1.1-.9 2-2 2H2" fill="none" stroke="currentColor"/><path d="M8.5 0L11 1.5 8.5 3zM3.5 5L1 6.5 3.5 8z" fill="currentColor"/></svg></button>
+    <button id="btn-mix" class="tbtn mode" title="crossfade between tracks"><svg viewBox="0 0 12 8"><path d="M0 0v8h9L0 0z" fill="currentColor" opacity=".55"/><path d="M12 0v8H3L12 0z" fill="currentColor" opacity=".55"/></svg></button>
   </div>
 </section>
 
@@ -80,6 +81,7 @@
 
   <div class="pl-footer">
     <input id="filter" type="search" placeholder="filter..." autocomplete="off">
+    <span id="storage" hidden><span class="meter"><span class="fill"></span></span><span class="used lcd"></span></span>
     <span id="status" class="lcd tag">loading...</span>
   </div>
 </section>
