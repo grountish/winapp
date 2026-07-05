@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Winapp</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Winapp">
+<meta name="theme-color" content="#171719">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" href="icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>WINAPP</h1>
+  <button id="btn-reload" title="reload playlist">&#8635;</button>
+</header>
+
+<section id="lcd">
+  <div id="lcd-times">
+    <span id="time-now">0:00</span>
+    <span id="time-total">0:00</span>
+  </div>
+  <div id="lcd-title">*** no track loaded ***</div>
+  <input id="seek" type="range" min="0" max="1000" value="0" step="1" disabled>
+</section>
+
+<section id="transport">
+  <button id="btn-prev" title="previous">&#9198;</button>
+  <button id="btn-play" title="play/pause">&#9654;</button>
+  <button id="btn-stop" title="stop">&#9632;</button>
+  <button id="btn-next" title="next">&#9197;</button>
+  <button id="btn-shuffle" title="shuffle">&#8646;</button>
+</section>
+
+<input id="filter" type="search" placeholder="filter..." autocomplete="off">
+
+<main id="playlist"></main>
+
+<footer id="status">loading playlist...</footer>
+
+<audio id="audio" preload="metadata"></audio>
+<script src="app.js"></script>
+</body>
+</html>
