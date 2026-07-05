@@ -2,45 +2,87 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
 <title>Winapp</title>
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Winapp">
-<meta name="theme-color" content="#171719">
+<meta name="theme-color" content="#1c1c30">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icon-192.png">
 <link rel="icon" href="icon-192.png">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header>
-  <h1>WINAPP</h1>
-  <button id="btn-reload" title="reload playlist">&#8635;</button>
-</header>
 
-<section id="lcd">
-  <div id="lcd-times">
-    <span id="time-now">0:00</span>
-    <span id="time-total">0:00</span>
+<!-- ============ MAIN WINDOW ============ -->
+<section class="win" id="main-win">
+  <div class="titlebar">
+    <span class="ridge"></span>
+    <span class="title">WINAPP</span>
+    <span class="ridge"></span>
   </div>
-  <div id="lcd-title">*** no track loaded ***</div>
-  <input id="seek" type="range" min="0" max="1000" value="0" step="1" disabled>
+
+  <div class="deck">
+    <div class="deck-left">
+      <div class="lcd" id="lcd-main">
+        <div class="time-row">
+          <span id="state-led" class="state-led"></span>
+          <span id="time-now" class="time7">&nbsp;0:00</span>
+        </div>
+        <canvas id="viz" width="76" height="20"></canvas>
+      </div>
+    </div>
+
+    <div class="deck-right">
+      <div class="lcd marquee-box">
+        <div id="marquee" class="marquee">*** winapp — drop the needle ***</div>
+      </div>
+      <div class="info-row">
+        <span class="lcd tag"><span id="fmt-kbps">---</span> kbps</span>
+        <span class="lcd tag"><span id="fmt-khz">--</span> kHz</span>
+        <span class="chan" id="chan-mono">mono</span>
+        <span class="chan" id="chan-stereo">stereo</span>
+      </div>
+      <div class="mix-row">
+        <input id="vol" class="wa-slider vol" type="range" min="0" max="100" value="100">
+        <input id="bal" class="wa-slider bal" type="range" min="-10" max="10" value="0">
+        <button id="btn-eq" class="lit-btn" disabled>EQ</button>
+        <button id="btn-pl" class="lit-btn on">PL</button>
+      </div>
+    </div>
+  </div>
+
+  <input id="seek" class="seekbar" type="range" min="0" max="1000" value="0" step="1" disabled>
+
+  <div class="transport">
+    <button class="tbtn" id="btn-prev" title="previous"><svg viewBox="0 0 12 8"><path d="M2 0h1v8H2zM11 0v8L4 4z"/></svg></button>
+    <button class="tbtn" id="btn-playb" title="play"><svg viewBox="0 0 12 8"><path d="M3 0l7 4-7 4z"/></svg></button>
+    <button class="tbtn" id="btn-pause" title="pause"><svg viewBox="0 0 12 8"><path d="M3 0h2v8H3zM7 0h2v8H7z"/></svg></button>
+    <button class="tbtn" id="btn-stop" title="stop"><svg viewBox="0 0 12 8"><path d="M2 0h8v8H2z"/></svg></button>
+    <button class="tbtn" id="btn-next" title="next"><svg viewBox="0 0 12 8"><path d="M9 0h1v8H9zM1 0l7 4-7 4z"/></svg></button>
+    <button class="tbtn" id="btn-eject" title="reload playlist"><svg viewBox="0 0 12 8"><path d="M1 6h10v2H1zM6 0l5 5H1z"/></svg></button>
+    <span class="tspacer"></span>
+    <button id="btn-shuffle" class="lit-btn">SHUFFLE</button>
+    <button id="btn-rep" class="lit-btn">REP</button>
+  </div>
 </section>
 
-<section id="transport">
-  <button id="btn-prev" title="previous">&#9198;</button>
-  <button id="btn-play" title="play/pause">&#9654;</button>
-  <button id="btn-stop" title="stop">&#9632;</button>
-  <button id="btn-next" title="next">&#9197;</button>
-  <button id="btn-shuffle" title="shuffle">&#8646;</button>
+<!-- ============ PLAYLIST WINDOW ============ -->
+<section class="win grow" id="pl-win">
+  <div class="titlebar">
+    <span class="ridge"></span>
+    <span class="title">WINAPP PLAYLIST</span>
+    <span class="ridge"></span>
+  </div>
+
+  <main id="playlist"></main>
+
+  <div class="pl-footer">
+    <input id="filter" type="search" placeholder="filter..." autocomplete="off">
+    <span id="status" class="lcd tag">loading...</span>
+  </div>
 </section>
-
-<input id="filter" type="search" placeholder="filter..." autocomplete="off">
-
-<main id="playlist"></main>
-
-<footer id="status">loading playlist...</footer>
 
 <audio id="audio" preload="metadata"></audio>
 <script src="app.js"></script>
