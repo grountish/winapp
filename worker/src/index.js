@@ -40,10 +40,12 @@ export default {
     if (request.method !== "GET") return new Response("method not allowed", { status: 405, headers: cors });
 
     const tracks = [];
+    let usedBytes = 0; // whole-bucket total, not just audio — quota counts everything
     let cursor;
     do {
       const page = await env.MUSIC.list({ cursor, limit: 1000 });
       for (const obj of page.objects) {
+        usedBytes += obj.size;
         const t = makeTrack(obj.key);
         if (t) tracks.push(t);
       }
@@ -57,7 +59,7 @@ export default {
     let base = env.PUBLIC_BASE || "";
     if (base && !base.endsWith("/")) base += "/";
 
-    return Response.json({ base, tracks }, {
+    return Response.json({ base, usedBytes, tracks }, {
       headers: { ...cors, "Cache-Control": "no-store" },
     });
   },
