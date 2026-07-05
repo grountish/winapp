@@ -28,8 +28,70 @@ let fading = null;      // {id, from} while a crossfade is running
 const MIX_SECS = 6;
 let collapsed = new Set();   // album names folded shut in the playlist tree
 try { collapsed = new Set(JSON.parse(localStorage.getItem("collapsed")) || []); } catch (_) {}
-// iOS ignores programmatic volume changes — there automix falls back to a hard cut
+// iOS ignores programmatic volume changes — without WebAudio it falls back to a hard cut
 const canFade = (() => { const a = document.createElement("audio"); a.volume = 0.5; return a.volume === 0.5; })();
+
+// ---------- WebAudio fades (mobile) ----------
+// Element volume is read-only on iOS, so crossfades run through gain nodes when
+// possible. createMediaElementSource taints cross-origin media unless the bucket
+// serves CORS, so the graph is only enabled after probeCors() confirms it.
+
+let webAudio = false;   // decided once per load, before any src is set
+let audioCtx = null;
+const gains = new Map();      // deck element -> GainNode
+let blessed = false;          // idle deck has had a user-gesture play()
+
+// ~50ms of silent wav — used to bless the idle deck inside a tap
+const SILENCE = "data:audio/wav;base64,UklGRnQAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YVAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
+
+async function probeCors() {
+  if (!tracks.length) return false;
+  try {
+    const res = await fetch(trackURL(tracks[0]), { method: "HEAD", mode: "cors" });
+    return res.ok;
+  } catch (_) { return false; }
+}
+
+function ensureGraph() {
+  if (!webAudio || audioCtx) return;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) { webAudio = false; return; }
+  audioCtx = new AC();
+  for (const el of [deckA, deckB]) {
+    const src = audioCtx.createMediaElementSource(el);
+    const g = audioCtx.createGain();
+    src.connect(g).connect(audioCtx.destination);
+    g.gain.value = userVol;
+    el.volume = 1;            // gain owns loudness from here on
+    gains.set(el, g);
+  }
+}
+
+// one volume knob for both modes: gain node when the graph runs, element volume otherwise
+function setVol(el, v) {
+  const g = gains.get(el);
+  if (g) g.gain.value = v; else el.volume = v;
+}
+
+// mobile browsers only allow play() on elements a user has touched, and
+// AudioContext starts suspended — fix both inside the first real gesture
+function unlockAudio() {
+  ensureGraph();
+  if (audioCtx && audioCtx.state === "suspended") audioCtx.resume().catch(() => {});
+  if (blessed || fading) return;   // during a fade the idle deck is the outgoing one
+  blessed = true;
+  const idle = audio === deckA ? deckB : deckA;
+  idle.muted = true;
+  idle.src = SILENCE;
+  idle.play().then(() => {
+    idle.pause(); idle.removeAttribute("src"); idle.load(); idle.muted = false;
+  }).catch(() => {
+    blessed = false;          // gesture didn't count (e.g. synthetic) — retry on next tap
+    idle.removeAttribute("src"); idle.load(); idle.muted = false;
+  });
+}
+document.addEventListener("pointerdown", unlockAudio, { capture: true });
+document.addEventListener("keydown", unlockAudio, { capture: true });
 
 // ---------- playlist ----------
 
@@ -69,6 +131,9 @@ async function loadPlaylist() {
     base = Array.isArray(data) ? "" : data.base || "";
     if (base && !base.endsWith("/")) base += "/";
     setStorageUI(Array.isArray(data) ? null : data.usedBytes);
+    // decide fade mode before any src is set: crossorigin must be in place first
+    webAudio = await probeCors();
+    if (webAudio) { deckA.crossOrigin = "anonymous"; deckB.crossOrigin = "anonymous"; }
     try { durations = JSON.parse(localStorage.getItem("durations")) || {}; } catch (_) { durations = {}; }
     rebuildOrder();
     render();
@@ -236,7 +301,7 @@ function nextOrderPos() {
 }
 
 function maybeMix() {
-  if (!mix || !canFade || fading || seeking || audio.paused) return;
+  if (!mix || (!canFade && !gains.size) || fading || seeking || audio.paused) return;
   const dur = audio.duration;
   if (!isFinite(dur) || !dur) return;
   const fade = Math.min(MIX_SECS, dur / 3);
@@ -252,31 +317,52 @@ function beginFade(orderPos, secs) {
   pos = orderPos;
   const t = tracks[order[pos]];
   to.src = trackURL(t);
-  to.volume = 0;
+  setVol(to, 0);
   audio = to;
   setNowPlayingUI(t);
   to.play().catch(() => {});
-  const t0 = performance.now();
-  const id = setInterval(() => {
-    const x = Math.min(1, (performance.now() - t0) / (secs * 1000));
-    from.volume = Math.cos((x * Math.PI) / 2) * userVol;      // equal-power
-    to.volume = Math.cos(((1 - x) * Math.PI) / 2) * userVol;
-    if (x === 1) endFade();
-  }, 50);
-  fading = { id, from };
+  if (gains.size && audioCtx) {
+    // ramps on the audio clock survive background timer throttling on mobile
+    const n = 32;
+    const down = new Float32Array(n), up = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = i / (n - 1);
+      down[i] = Math.cos((x * Math.PI) / 2) * userVol;          // equal-power
+      up[i] = Math.cos(((1 - x) * Math.PI) / 2) * userVol;
+    }
+    const t0 = audioCtx.currentTime;
+    for (const g of gains.values()) g.gain.cancelScheduledValues(t0);
+    gains.get(from).gain.setValueCurveAtTime(down, t0, secs);
+    gains.get(to).gain.setValueCurveAtTime(up, t0, secs);
+    fading = { id: setTimeout(endFade, secs * 1000 + 250), from, timer: "timeout" };
+  } else {
+    const t0 = performance.now();
+    const id = setInterval(() => {
+      const x = Math.min(1, (performance.now() - t0) / (secs * 1000));
+      from.volume = Math.cos((x * Math.PI) / 2) * userVol;      // equal-power
+      to.volume = Math.cos(((1 - x) * Math.PI) / 2) * userVol;
+      if (x === 1) endFade();
+    }, 50);
+    fading = { id, from, timer: "interval" };
+  }
   saveLast();
 }
 
 // finishes or cancels a crossfade: outgoing deck is silenced and unloaded
 function endFade() {
   if (!fading) return;
-  clearInterval(fading.id);
+  (fading.timer === "timeout" ? clearTimeout : clearInterval)(fading.id);
   const from = fading.from;
   fading = null;
   from.pause();
   from.removeAttribute("src");
   from.load();
-  audio.volume = userVol;
+  if (audioCtx) {
+    const t = audioCtx.currentTime;
+    for (const g of gains.values()) g.gain.cancelScheduledValues(t);
+    setVol(from, userVol);    // silent while unloaded; primed for its next turn
+  }
+  setVol(audio, userVol);
 }
 
 function markCurrent() {
@@ -452,7 +538,7 @@ $("btn-eject").addEventListener("click", loadPlaylist);
 $("filter").addEventListener("input", render);
 $("vol").addEventListener("input", (e) => {
   userVol = e.target.value / 100;
-  if (!fading) audio.volume = userVol;   // during a fade the ramp rescales both decks
+  if (!fading) setVol(audio, userVol);   // during a fade the ramp rescales both decks
 });
 
 $("btn-pl").addEventListener("click", () => {

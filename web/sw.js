@@ -1,6 +1,6 @@
 "use strict";
 
-const CACHE = "winapp-v4";
+const CACHE = "winapp-v5";
 const SHELL = ["index.html", "style.css", "app.js", "manifest.json", "icon-192.png", "icon-512.png", "fonts/DSEG7Classic-Bold.woff2"];
 
 self.addEventListener("install", (e) => {
